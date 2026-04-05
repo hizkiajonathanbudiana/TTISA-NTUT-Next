@@ -36,8 +36,10 @@ export default function AdminLoginPage() {
   const handleGoogle = async () => {
     try {
       setSubmitting(true);
-      await signInWithGoogle();
-      router.replace(redirectRef.current);
+      const signedInUser = await signInWithGoogle(redirectRef.current);
+      if (signedInUser) {
+        router.replace(redirectRef.current);
+      }
     } catch (error: unknown) {
       toast.error(getAuthErrorMessage(error));
     } finally {

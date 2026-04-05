@@ -59,6 +59,8 @@
       "statusLabel": "Status",
       "shareLabel": "Share this event",
       "shareSuccess": "Link copied!",
+      "shareQrLabel": "Scan QR to open event details",
+      "shareLinkLabel": "Open event details link",
       "descriptionFallback": "More information will be published soon.",
       "freeLabel": "Free event"
     },

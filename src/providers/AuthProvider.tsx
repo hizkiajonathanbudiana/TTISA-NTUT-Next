@@ -6,15 +6,70 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut as firebaseSignOut,
   type User,
 } from 'firebase/auth';
 import { firebaseAuth } from '@/lib/firebase/client';
 
+const POST_LOGIN_REDIRECT_KEY = 'ttisa_post_login_redirect';
+const POST_LOGIN_REDIRECT_TTL_MS = 10 * 60 * 1000;
+
+const getCurrentPath = () => `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+const rememberPostLoginRedirect = (redirectTo?: string) => {
+  if (typeof window === 'undefined') return;
+
+  const target = (redirectTo?.trim() || getCurrentPath()).trim();
+  if (!target.startsWith('/')) return;
+
+  localStorage.setItem(
+    POST_LOGIN_REDIRECT_KEY,
+    JSON.stringify({ target, ts: Date.now() }),
+  );
+};
+
+const readPostLoginRedirect = (): string | null => {
+  if (typeof window === 'undefined') return null;
+
+  const raw = localStorage.getItem(POST_LOGIN_REDIRECT_KEY);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as { target?: string; ts?: number };
+    if (!parsed?.target || typeof parsed.target !== 'string' || !parsed.target.startsWith('/')) {
+      localStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+      return null;
+    }
+    if (!parsed.ts || Date.now() - parsed.ts > POST_LOGIN_REDIRECT_TTL_MS) {
+      localStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+      return null;
+    }
+    return parsed.target;
+  } catch {
+    localStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+    return null;
+  }
+};
+
+const clearPostLoginRedirect = () => {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+};
+
+const shouldUseRedirectFlow = () => {
+  if (typeof window === 'undefined') return false;
+
+  const ua = window.navigator.userAgent || '';
+  const isIOSDevice = /iPad|iPhone|iPod/.test(ua);
+  const isIPadDesktopMode = window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1;
+  return isIOSDevice || isIPadDesktopMode;
+};
+
 export interface AuthContextValue {
   user: User | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<User>;
+  signInWithGoogle: (redirectTo?: string) => Promise<User | null>;
   signInWithEmailPassword: (email: string, password: string) => Promise<User>;
   signOut: () => Promise<void>;
 }
@@ -38,11 +93,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(firebaseAuth, (nextUser) => {
       setUser(nextUser);
+
       if (nextUser) {
         syncUserProfile(nextUser).catch((error) => {
           console.warn('Failed to sync user profile', error);
         });
+
+        const redirectTarget = readPostLoginRedirect();
+        if (redirectTarget) {
+          const currentPath = getCurrentPath();
+          if (currentPath !== redirectTarget) {
+            clearPostLoginRedirect();
+            window.location.replace(redirectTarget);
+            return;
+          }
+        }
       }
+
       setLoading(false);
     });
 
@@ -53,11 +120,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     await firebaseSignOut(firebaseAuth);
   };
 
-  const handleGoogleSignIn = async () => {
+  const handleGoogleSignIn = async (redirectTo?: string) => {
     const provider = new GoogleAuthProvider();
-    const credential = await signInWithPopup(firebaseAuth, provider);
-    await syncUserProfile(credential.user);
-    return credential.user;
+    rememberPostLoginRedirect(redirectTo);
+
+    if (shouldUseRedirectFlow()) {
+      await signInWithRedirect(firebaseAuth, provider);
+      return null;
+    }
+
+    try {
+      const credential = await signInWithPopup(firebaseAuth, provider);
+      await syncUserProfile(credential.user);
+      return credential.user;
+    } catch (error: unknown) {
+      const code =
+        typeof error === 'object' && error && 'code' in error
+          ? String((error as { code?: unknown }).code ?? '')
+          : '';
+
+      if (code.includes('popup') || code === 'auth/cancelled-popup-request') {
+        await signInWithRedirect(firebaseAuth, provider);
+        return null;
+      }
+
+      throw error;
+    }
   };
 
   const handleEmailPasswordSignIn = async (email: string, password: string) => {

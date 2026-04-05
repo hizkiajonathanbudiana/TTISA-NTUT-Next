@@ -8,7 +8,6 @@ import clsx from 'clsx';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { Icon } from '@/components/Icon';
-import { fetchFullProfile } from '@/lib/data/profile';
 import type { CmsRole } from '@/types/content';
 import { useAuth } from '@/providers/AuthProvider';
 
@@ -55,6 +54,22 @@ const DetailRow = ({ label, value }: { label: string; value: string | number | n
   </div>
 );
 
+const fetchCmsUserDetail = async (uid: string, token: string) => {
+  const response = await fetch(`/api/cms/users/${uid}/profile`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(typeof payload.error === 'string' ? payload.error : 'Failed to load member profile.');
+  }
+
+  return response.json();
+};
+
 export default function CmsUserDetailPage() {
   const params = useParams<{ uid: string }>();
   const { user } = useAuth();
@@ -78,7 +93,11 @@ export default function CmsUserDetailPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['cms-user-detail', uid],
     enabled: Boolean(uid && user?.uid),
-    queryFn: async () => fetchFullProfile(uid),
+    queryFn: async () => {
+      if (!user) throw new Error('Please sign in again.');
+      const token = await user.getIdToken();
+      return fetchCmsUserDetail(uid, token);
+    },
   });
 
   const saveMutation = useMutation({

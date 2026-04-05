@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import Image from 'next/image';
 import Link from 'next/link';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -33,12 +32,6 @@ type CmsUserRecord = CmsDocument & {
   studentId?: string;
   avatarUrl?: string;
   role?: CmsRole;
-};
-
-const avatarFor = (user: CmsUserRecord) => {
-  if (user.avatarUrl) return user.avatarUrl as string;
-  const seed = encodeURIComponent(user.englishName ?? user.email ?? 'TTISA');
-  return `https://api.dicebear.com/8.x/initials/svg?seed=${seed}`;
 };
 
 export default function CmsUsersPage() {
@@ -86,9 +79,44 @@ export default function CmsUsersPage() {
   };
 
   const handleSaveRole = async () => {
-    if (!modalUser) return;
+    if (!modalUser || !authUser) return;
     try {
-      await updateItem(modalUser.id, { role: selectedRole });
+      const token = await authUser.getIdToken();
+      if (!modalUser.email) {
+        throw new Error('Cannot update role because this user has no email in cms_users.');
+      }
+      const fallbackName =
+        modalUser.englishName?.trim() ||
+        modalUser.email?.split('@')[0]?.trim() ||
+        `Member-${modalUser.id.slice(0, 6)}`;
+
+      const response = await fetch(`/api/cms/users/${modalUser.id}/profile`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: modalUser.email,
+          englishName: fallbackName,
+          chineseName: null,
+          studentId: modalUser.studentId ?? null,
+          department: null,
+          nationality: null,
+          gender: null,
+          birthDate: null,
+          studentStatus: null,
+          avatarUrl: null,
+          role: selectedRole,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(typeof payload.error === 'string' ? payload.error : 'Failed to update role');
+      }
+
+      await updateItem(modalUser.id, { role: selectedRole, englishName: fallbackName });
       toast.success('Role updated successfully.');
       setModalUser(null);
     } catch (error) {
@@ -205,18 +233,9 @@ export default function CmsUsersPage() {
               paginatedUsers.map((user) => (
                 <tr key={user.id}>
                   <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <Image
-                        src={avatarFor(user)}
-                        alt={user.englishName ?? 'Member avatar'}
-                        width={40}
-                        height={40}
-                        className="h-10 w-10 rounded-full object-cover"
-                      />
-                      <div>
-                        <div className="font-semibold text-text-primary">{user.englishName ?? 'Unnamed member'}</div>
-                        <div className="text-xs text-text-secondary">UID: {user.id}</div>
-                      </div>
+                    <div>
+                      <div className="font-semibold text-text-primary">{user.englishName ?? user.email?.split('@')[0] ?? `Member-${user.id.slice(0, 6)}`}</div>
+                      <div className="text-xs text-text-secondary">UID: {user.id}</div>
                     </div>
                   </td>
                   <td className="px-6 py-4 text-text-secondary">{user.studentId ?? '—'}</td>

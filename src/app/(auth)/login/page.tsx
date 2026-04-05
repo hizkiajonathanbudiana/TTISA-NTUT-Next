@@ -31,9 +31,11 @@ export default function LoginPage() {
     }
 
     attemptedRef.current = true;
-    signInWithGoogle()
-      .then(() => {
-        router.replace(redirectRef.current);
+    signInWithGoogle(redirectRef.current)
+      .then((signedInUser) => {
+        if (signedInUser) {
+          router.replace(redirectRef.current);
+        }
       })
       .catch((error: unknown) => {
         toast.error(getAuthErrorMessage(error));
@@ -66,9 +68,11 @@ export default function LoginPage() {
         <button
           type="button"
           onClick={() =>
-            signInWithGoogle()
-              .then(() => {
-                router.replace(redirectRef.current);
+            signInWithGoogle(redirectRef.current)
+              .then((signedInUser) => {
+                if (signedInUser) {
+                  router.replace(redirectRef.current);
+                }
               })
               .catch((error: unknown) => {
                 toast.error(getAuthErrorMessage(error));

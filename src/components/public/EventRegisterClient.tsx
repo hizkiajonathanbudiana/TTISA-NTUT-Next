@@ -1,14 +1,16 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { QRCodeSVG } from 'qrcode.react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import type { User } from 'firebase/auth';
 import { useAuth } from '@/providers/AuthProvider';
 import { uploadCmsAsset } from '@/lib/firebase/storage';
+import { LoadingHamster } from '@/components/public/LoadingHamster';
 
 type FormPayload = {
   englishName: string;
@@ -68,6 +70,18 @@ type UiText = {
   eventPrice: string;
   free: string;
   noDescription: string;
+  loginRequiredTitle: string;
+  loginRequiredDescription: string;
+  continueWithGoogle: string;
+  shareFormLabel: string;
+  shareFormQrLabel: string;
+  shareFormLinkLabel: string;
+};
+
+type PublicEventPayload = {
+  event: RegistrationFormResponse['event'];
+  paymentInstructions: RegistrationFormResponse['paymentMethods'];
+  proofContacts: RegistrationFormResponse['proofContacts'];
 };
 
 type RegistrationFormResponse = {
@@ -156,6 +170,25 @@ const saveRegistrationForm = async (
   return response.json() as Promise<{ canEdit: boolean }>;
 };
 
+const fetchPublicEvent = async (slug: string): Promise<PublicEventPayload> => {
+  const response = await fetch(`/api/events/${slug}`, {
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    const reason = typeof payload.error === 'string' ? payload.error : 'Unable to load event data.';
+    throw new Error(reason);
+  }
+
+  const payload = await response.json();
+  return {
+    event: payload.event,
+    paymentInstructions: payload.paymentInstructions ?? [],
+    proofContacts: payload.proofContacts ?? [],
+  } satisfies PublicEventPayload;
+};
+
 const genderOptions = ['male', 'female', 'rather_not_say'] as const;
 
 const studentStatusOptions = [
@@ -234,6 +267,12 @@ const uiText: Record<FormLanguage, UiText> = {
     eventPrice: 'Price',
     free: 'Free',
     noDescription: 'No additional description.',
+    loginRequiredTitle: 'Sign in required to edit this form',
+    loginRequiredDescription: 'You can review all event and payment details now. Sign in with Google to fill and submit the registration form.',
+    continueWithGoogle: 'Continue with Google',
+    shareFormLabel: 'Share this form',
+    shareFormQrLabel: 'Scan QR to open registration form',
+    shareFormLinkLabel: 'Open registration form link',
   },
   'zh-HANT': {
     titleSuffix: '報名表',
@@ -279,6 +318,12 @@ const uiText: Record<FormLanguage, UiText> = {
     eventPrice: '費用',
     free: '免費',
     noDescription: '目前沒有更多活動說明。',
+    loginRequiredTitle: '需先登入才能填寫',
+    loginRequiredDescription: '你現在可以先查看活動與付款資訊，登入 Google 後即可填寫並送出報名表。',
+    continueWithGoogle: '使用 Google 繼續',
+    shareFormLabel: '分享報名表',
+    shareFormQrLabel: '掃描 QR 開啟報名表',
+    shareFormLinkLabel: '開啟報名表連結',
   },
 };
 
@@ -295,10 +340,16 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
   const { user, signInWithGoogle } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const attemptedGoogleRef = useRef(false);
   const [formLanguage, setFormLanguage] = useState<FormLanguage>('en');
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [isUploadingProof, setIsUploadingProof] = useState(false);
+  const [origin, setOrigin] = useState('');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setOrigin(window.location.origin);
+    }
+  }, []);
 
   const {
     register,
@@ -326,21 +377,10 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
     enabled: Boolean(user?.uid),
   });
 
-  useEffect(() => {
-    if (user || attemptedGoogleRef.current) {
-      return;
-    }
-    attemptedGoogleRef.current = true;
-
-    void (async () => {
-      try {
-        await signInWithGoogle();
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Google sign-in failed.');
-        router.replace(`/events/${slug}`);
-      }
-    })();
-  }, [router, signInWithGoogle, slug, user]);
+  const publicEventQuery = useQuery({
+    queryKey: ['event-register-public', slug],
+    queryFn: () => fetchPublicEvent(slug),
+  });
 
   useEffect(() => {
     if (!formQuery.data) return;
@@ -407,8 +447,21 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
   const canEdit = formQuery.data?.canEdit ?? true;
   const status = formQuery.data?.registration?.status ?? null;
 
-  const paymentInstructions = useMemo(() => formQuery.data?.paymentMethods ?? [], [formQuery.data]);
-  const proofContacts = useMemo(() => formQuery.data?.proofContacts ?? [], [formQuery.data]);
+  const sourceData = user ? formQuery.data : publicEventQuery.data;
+  const isLoading = user ? formQuery.isLoading : publicEventQuery.isLoading;
+  const paymentInstructions = useMemo(
+    () => (user ? formQuery.data?.paymentMethods ?? [] : publicEventQuery.data?.paymentInstructions ?? []),
+    [formQuery.data?.paymentMethods, publicEventQuery.data?.paymentInstructions, user],
+  );
+  const proofContacts = useMemo(
+    () => (user ? formQuery.data?.proofContacts ?? [] : publicEventQuery.data?.proofContacts ?? []),
+    [formQuery.data?.proofContacts, publicEventQuery.data?.proofContacts, user],
+  );
+  const isFormLocked = !user || !canEdit;
+  const formShareUrl = useMemo(() => {
+    const path = `/events/${slug}/register`;
+    return origin ? `${origin}${path}` : path;
+  }, [origin, slug]);
 
   const onUploadProof = async (file: File) => {
     if (!user) return;
@@ -442,29 +495,42 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
     submitMutation.mutate(values);
   };
 
-  if (!user || formQuery.isLoading) {
-    return <div className="container py-28 text-center text-sm text-text-secondary">Loading registration form...</div>;
+  if (isLoading) {
+    return (
+      <div className="container py-20 text-center">
+        <LoadingHamster />
+      </div>
+    );
   }
 
-  if (formQuery.isError || !formQuery.data) {
+  if ((user && (formQuery.isError || !formQuery.data)) || (!user && (publicEventQuery.isError || !publicEventQuery.data))) {
     return (
       <div className="container py-28 text-center">
-        <p className="text-sm text-system-danger">{formQuery.error instanceof Error ? formQuery.error.message : 'Unable to load form.'}</p>
+        <p className="text-sm text-system-danger">
+          {user
+            ? formQuery.error instanceof Error
+              ? formQuery.error.message
+              : 'Unable to load form.'
+            : publicEventQuery.error instanceof Error
+            ? publicEventQuery.error.message
+            : 'Unable to load event data.'}
+        </p>
         <Link href={`/events/${slug}`} className="mt-4 inline-flex text-sm font-semibold text-primary">← {text.back}</Link>
       </div>
     );
   }
 
-  const statusEn = formQuery.data.registration?.statusLabelEn;
-  const statusZh = formQuery.data.registration?.statusLabelZhHant;
+  const statusEn = user ? formQuery.data?.registration?.statusLabelEn : undefined;
+  const statusZh = user ? formQuery.data?.registration?.statusLabelZhHant : undefined;
+  const eventData = sourceData?.event;
   const eventTitle =
     formLanguage === 'zh-HANT'
-      ? formQuery.data.event.titleZhHant ?? formQuery.data.event.title
-      : formQuery.data.event.title;
+      ? eventData?.titleZhHant ?? eventData?.title ?? 'Event'
+      : eventData?.title ?? 'Event';
   const eventDescription =
     formLanguage === 'zh-HANT'
-      ? formQuery.data.event.descriptionZhHant ?? formQuery.data.event.summaryZhHant ?? formQuery.data.event.description ?? formQuery.data.event.summary
-      : formQuery.data.event.description ?? formQuery.data.event.summary;
+      ? eventData?.descriptionZhHant ?? eventData?.summaryZhHant ?? eventData?.description ?? eventData?.summary
+      : eventData?.description ?? eventData?.summary;
   const statusText =
     formLanguage === 'zh-HANT'
       ? statusZh ?? (status === 'accepted' ? text.statusAccepted : status === 'rejected' ? text.statusRejected : text.statusPending)
@@ -473,7 +539,7 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
   return (
     <div className="bg-background pb-10 pt-10 md:pt-14">
       <div className="container max-w-3xl">
-        <div className="overflow-hidden rounded-2xl border border-border bg-white shadow-card">
+        <div className="overflow-hidden rounded-2xl border border-border bg-white">
           <div className="h-3 bg-primary" />
           <div className="px-6 py-6 md:px-10">
             <div className="flex items-center justify-between gap-4">
@@ -482,20 +548,33 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
                 <button
                   type="button"
                   onClick={() => setFormLanguage('en')}
-                  className={`rounded-full px-3 py-1 focus:outline-none focus-visible:outline-none focus-visible:ring-0 ${formLanguage === 'en' ? 'bg-primary text-white shadow' : 'text-text-secondary hover:bg-neutral-100'}`}
+                  className={`rounded-full px-3 py-1 focus:outline-none focus-visible:outline-none focus-visible:ring-0 ${formLanguage === 'en' ? 'bg-primary text-white' : 'text-text-secondary hover:bg-neutral-100'}`}
                 >
                   EN
                 </button>
                 <button
                   type="button"
                   onClick={() => setFormLanguage('zh-HANT')}
-                  className={`rounded-full px-3 py-1 focus:outline-none focus-visible:outline-none focus-visible:ring-0 ${formLanguage === 'zh-HANT' ? 'bg-primary text-white shadow' : 'text-text-secondary hover:bg-neutral-100'}`}
+                  className={`rounded-full px-3 py-1 focus:outline-none focus-visible:outline-none focus-visible:ring-0 ${formLanguage === 'zh-HANT' ? 'bg-primary text-white' : 'text-text-secondary hover:bg-neutral-100'}`}
                 >
                   繁
                 </button>
               </div>
             </div>
             <p className="mt-2 text-sm text-text-secondary">{text.intro}</p>
+            {!user && (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-semibold text-amber-900">{text.loginRequiredTitle}</p>
+                <p className="mt-1 text-sm text-amber-800">{text.loginRequiredDescription}</p>
+                <button
+                  type="button"
+                  onClick={() => void signInWithGoogle(`/events/${slug}/register`)}
+                  className="mt-3 inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white"
+                >
+                  {text.continueWithGoogle}
+                </button>
+              </div>
+            )}
             {status && (
               <p className="mt-3 text-sm font-semibold text-text-primary">
                 {text.status}: <span className="capitalize">{statusText}</span>
@@ -510,36 +589,52 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
               {eventDescription ?? text.noDescription}
             </p>
             <div className="mt-3 grid gap-2 text-sm text-text-primary md:grid-cols-3">
-              <p><span className="font-semibold">{text.eventLocation}:</span> {formQuery.data.event.location ?? 'TBA'}</p>
-              <p><span className="font-semibold">{text.eventTime}:</span> {formatEventDateRange(formQuery.data.event.startDate, formQuery.data.event.endDate)}</p>
+              <p><span className="font-semibold">{text.eventLocation}:</span> {eventData?.location ?? 'TBA'}</p>
+              <p><span className="font-semibold">{text.eventTime}:</span> {formatEventDateRange(eventData?.startDate, eventData?.endDate)}</p>
               <p>
                 <span className="font-semibold">{text.eventPrice}:</span>{' '}
-                {typeof formQuery.data.event.price === 'number' ? `NT$ ${formQuery.data.event.price.toLocaleString()}` : text.free}
+                {typeof eventData?.price === 'number' ? `NT$ ${eventData.price.toLocaleString()}` : text.free}
               </p>
             </div>
           </div>
 
+          <div className="mx-6 mb-2 rounded-xl border border-border bg-white p-4 text-center md:mx-10">
+            <h2 className="text-lg font-bold text-text-primary">{text.shareFormLabel}</h2>
+            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-text-secondary">{text.shareFormQrLabel}</p>
+            <div className="mt-3 flex justify-center">
+              <QRCodeSVG value={formShareUrl} size={140} />
+            </div>
+            <a
+              href={formShareUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 block break-all text-xs text-primary underline"
+            >
+              {text.shareFormLinkLabel}
+            </a>
+          </div>
+
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 px-6 pb-8 md:px-10">
             <Field label={text.englishName} error={errors.englishName?.message}>
-              <input {...register('englishName', { required: text.requiredField })} className="w-full rounded-xl border border-border bg-white p-3" />
+              <input {...register('englishName', { required: text.requiredField })} disabled={isFormLocked} className="w-full rounded-xl border border-border bg-white p-3 disabled:cursor-not-allowed disabled:bg-neutral-100" />
             </Field>
             <Field label={text.chineseName} error={errors.chineseName?.message}>
-              <input {...register('chineseName', { required: text.requiredField })} className="w-full rounded-xl border border-border bg-white p-3" />
+              <input {...register('chineseName', { required: text.requiredField })} disabled={isFormLocked} className="w-full rounded-xl border border-border bg-white p-3 disabled:cursor-not-allowed disabled:bg-neutral-100" />
             </Field>
             <Field label={text.department} error={errors.department?.message}>
-              <input {...register('department', { required: text.requiredField })} className="w-full rounded-xl border border-border bg-white p-3" />
+              <input {...register('department', { required: text.requiredField })} disabled={isFormLocked} className="w-full rounded-xl border border-border bg-white p-3 disabled:cursor-not-allowed disabled:bg-neutral-100" />
             </Field>
             <Field label={text.nationality} error={errors.nationality?.message}>
-              <input {...register('nationality', { required: text.requiredField })} className="w-full rounded-xl border border-border bg-white p-3" />
+              <input {...register('nationality', { required: text.requiredField })} disabled={isFormLocked} className="w-full rounded-xl border border-border bg-white p-3 disabled:cursor-not-allowed disabled:bg-neutral-100" />
             </Field>
             <Field label={text.studentId} error={errors.studentId?.message}>
-              <input {...register('studentId', { required: text.requiredField })} className="w-full rounded-xl border border-border bg-white p-3" />
+              <input {...register('studentId', { required: text.requiredField })} disabled={isFormLocked} className="w-full rounded-xl border border-border bg-white p-3 disabled:cursor-not-allowed disabled:bg-neutral-100" />
             </Field>
             <Field label={text.birthday} error={errors.birthday?.message}>
-              <input type="date" {...register('birthday', { required: text.requiredField })} className="w-full rounded-xl border border-border bg-white p-3" />
+              <input type="date" {...register('birthday', { required: text.requiredField })} disabled={isFormLocked} className="w-full rounded-xl border border-border bg-white p-3 disabled:cursor-not-allowed disabled:bg-neutral-100" />
             </Field>
             <Field label={text.gender} error={errors.gender?.message}>
-              <select {...register('gender', { required: text.requiredGender })} className="w-full rounded-xl border border-border bg-white p-3">
+              <select {...register('gender', { required: text.requiredGender })} disabled={isFormLocked} className="w-full rounded-xl border border-border bg-white p-3 disabled:cursor-not-allowed disabled:bg-neutral-100">
                 {genderOptions.map((item) => (
                   <option key={item} value={item}>
                     {item === 'male' ? text.genderMale : item === 'female' ? text.genderFemale : text.genderRatherNotSay}
@@ -548,7 +643,7 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
               </select>
             </Field>
             <Field label={text.studentStatus} error={errors.studentStatus?.message}>
-              <select {...register('studentStatus', { required: text.requiredStudentStatus })} className="w-full rounded-xl border border-border bg-white p-3">
+              <select {...register('studentStatus', { required: text.requiredStudentStatus })} disabled={isFormLocked} className="w-full rounded-xl border border-border bg-white p-3 disabled:cursor-not-allowed disabled:bg-neutral-100">
                 {studentStatusOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {formLanguage === 'zh-HANT' ? option.zh : option.en}
@@ -561,11 +656,11 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
               <h2 className="text-sm font-semibold text-text-primary">{text.payment}</h2>
               <div className="mt-3 grid gap-2 text-sm">
                 <label className="flex items-center gap-2">
-                  <input type="radio" value="cash" {...register('paymentMethod')} />
+                  <input type="radio" value="cash" {...register('paymentMethod')} disabled={isFormLocked} />
                   {text.cash}
                 </label>
                 <label className="flex items-center gap-2">
-                  <input type="radio" value="transfer" {...register('paymentMethod')} />
+                  <input type="radio" value="transfer" {...register('paymentMethod')} disabled={isFormLocked} />
                   {text.transfer}
                 </label>
               </div>
@@ -585,7 +680,7 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
                       accept="image/*"
                       capture="environment"
                       className="hidden"
-                      disabled={isUploadingProof || !canEdit}
+                      disabled={isUploadingProof || isFormLocked}
                       onChange={(event) => {
                         const file = event.target.files?.[0];
                         if (file) {
@@ -648,10 +743,10 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
               </Link>
               <button
                 type="submit"
-                disabled={!canEdit || isSubmitting || submitMutation.isPending || isUploadingProof}
+                disabled={isFormLocked || isSubmitting || submitMutation.isPending || isUploadingProof}
                 className="rounded-xl bg-primary px-6 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {submitMutation.isPending ? text.submitting : canEdit ? text.submit : text.locked}
+                {submitMutation.isPending ? text.submitting : isFormLocked ? text.locked : text.submit}
               </button>
             </div>
           </form>

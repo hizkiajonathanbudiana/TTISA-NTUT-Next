@@ -90,7 +90,7 @@ export const PublicShell = ({ children }: { children: ReactNode }) => {
 
   const handleGoogleLogin = async () => {
     try {
-      await signInWithGoogle();
+      await signInWithGoogle(typeof window !== 'undefined' ? `${window.location.pathname}${window.location.search}${window.location.hash}` : '/');
       setIsMenuOpen(false);
     } catch (error) {
       toast.error(getAuthErrorMessage(error, 'Google sign-in failed.'));

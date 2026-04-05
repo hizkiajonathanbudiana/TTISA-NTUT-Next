@@ -59,6 +59,8 @@
       "statusLabel": "狀態",
       "shareLabel": "分享活動",
       "shareSuccess": "連結已複製！",
+      "shareQrLabel": "掃描 QR 開啟活動詳情",
+      "shareLinkLabel": "開啟活動詳情連結",
       "descriptionFallback": "更多資訊即將發布。",
       "freeLabel": "免費活動"
     },

@@ -20,6 +20,63 @@ const profileSchema = z.object({
   role: z.enum(['admin', 'developer', 'organizer', 'member']).default('member'),
 });
 
+const optionalString = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+export async function GET(request: Request, context: RouteContext) {
+  try {
+    await verifyCmsRequest(request, ['admin', 'developer', 'organizer']);
+    const { uid } = await context.params;
+    if (!uid) {
+      throw new CmsHttpError(400, 'Missing user id.');
+    }
+
+    const db = requireAdminDb();
+    const auth = requireAdminAuth();
+
+    const [userDoc, profileDoc, authRecord] = await Promise.all([
+      db.collection('cms_users').doc(uid).get(),
+      db.collection('user_profiles').doc(uid).get(),
+      auth.getUser(uid).catch(() => null),
+    ]);
+
+    const userData = userDoc.exists ? userDoc.data() ?? {} : {};
+    const profileData = profileDoc.exists ? profileDoc.data() ?? {} : {};
+
+    const email =
+      optionalString(userData.email) ??
+      optionalString(authRecord?.email) ??
+      null;
+
+    const fallbackName =
+      optionalString(profileData.englishName) ??
+      optionalString(userData.englishName) ??
+      optionalString(authRecord?.displayName) ??
+      (email ? email.split('@')[0] : `Member-${uid.slice(0, 6)}`);
+
+    const profile = {
+      englishName: fallbackName,
+      chineseName: optionalString(profileData.chineseName),
+      department: optionalString(profileData.department),
+      nationality: optionalString(profileData.nationality),
+      studentId: optionalString(profileData.studentId) ?? optionalString(userData.studentId),
+      avatarUrl: optionalString(profileData.avatarUrl) ?? optionalString(userData.avatarUrl),
+      birthDate: optionalString(profileData.birthDate),
+      gender: profileData.gender ?? null,
+      studentStatus: profileData.studentStatus ?? null,
+    };
+
+    const role = (userData.role ?? 'member') as 'admin' | 'developer' | 'organizer' | 'member';
+
+    return NextResponse.json({ profile, role, email });
+  } catch (error) {
+    return cmsErrorResponse(error);
+  }
+}
+
 export async function PATCH(request: Request, context: RouteContext) {
   try {
     await verifyCmsRequest(request, ['admin', 'developer', 'organizer']);

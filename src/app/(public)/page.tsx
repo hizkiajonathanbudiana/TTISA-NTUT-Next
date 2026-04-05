@@ -34,7 +34,7 @@ const AnimatedSection = ({ children, className = '' }: { children: React.ReactNo
 );
 
 const PromoCard = ({ imageUrl, title, copy }: { imageUrl?: string | null; title: string; copy: string }) => (
-  <div className="h-full overflow-hidden rounded-2xl border border-white/20 bg-white/60 shadow-lg backdrop-blur-lg">
+  <div className="h-full overflow-hidden rounded-2xl border border-white/20 bg-white/60 backdrop-blur-lg">
     <div className="relative aspect-[16/10] w-full overflow-hidden bg-neutral-100">
       {imageUrl ? (
         <Image

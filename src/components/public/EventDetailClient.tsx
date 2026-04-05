@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
 import clsx from 'clsx';
 import { motion } from 'framer-motion';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { z } from 'zod';
@@ -19,6 +19,7 @@ import type {
 } from '@/types/content';
 import { useAuth } from '@/providers/AuthProvider';
 import { useTranslation } from '@/providers/LanguageProvider';
+import { LoadingHamster } from '@/components/public/LoadingHamster';
 
 interface EventDetailClientProps {
   slug: string;
@@ -174,6 +175,13 @@ export const EventDetailClient = ({ slug }: EventDetailClientProps) => {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [shareState, setShareState] = useState<'idle' | 'copied'>('idle');
+  const [origin, setOrigin] = useState('');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setOrigin(window.location.origin);
+    }
+  }, []);
 
   const detailQuery = useQuery({
     queryKey: ['event-detail', slug, user?.uid ?? 'anon'],
@@ -200,6 +208,10 @@ export const EventDetailClient = ({ slug }: EventDetailClientProps) => {
   const timeRange = useMemo(() => (event ? formatTimeRange(event.startDate, event.endDate) : '—'), [event]);
   const priceLabel = typeof event?.price === 'number' ? `NT$ ${event.price.toLocaleString()}` : t('events.details.freeLabel');
   const isPaidEvent = Boolean(event?.isPaid || typeof event?.price === 'number');
+  const eventShareUrl = useMemo(() => {
+    const path = `/events/${slug}`;
+    return origin ? `${origin}${path}` : path;
+  }, [origin, slug]);
 
   const hasReviewed = Boolean(user && reviews.some((review) => review.userId === user.uid));
   const canReview = Boolean(
@@ -237,16 +249,15 @@ export const EventDetailClient = ({ slug }: EventDetailClientProps) => {
 
   const handleShare = async () => {
     try {
-      const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
       if (navigator.share && event) {
         await navigator.share({
           title: localizedTitle ?? 'TTISA Event',
           text: localizedSummary ?? undefined,
-          url: shareUrl,
+          url: eventShareUrl,
         });
         return;
       }
-      await navigator.clipboard.writeText(shareUrl);
+      await navigator.clipboard.writeText(eventShareUrl);
       setShareState('copied');
       setTimeout(() => setShareState('idle'), 2500);
     } catch (error) {
@@ -256,7 +267,11 @@ export const EventDetailClient = ({ slug }: EventDetailClientProps) => {
   };
 
   if (detailQuery.isLoading) {
-    return <StatusMessage message={t('events.loadingDetail')} />;
+    return (
+      <div className="container py-20 text-center">
+        <LoadingHamster />
+      </div>
+    );
   }
 
   if (detailQuery.isError) {
@@ -303,7 +318,7 @@ export const EventDetailClient = ({ slug }: EventDetailClientProps) => {
           )
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/80 via-black/60 to-black/30" />
-        <div className="container relative z-10 flex flex-col gap-6 py-24 text-white">
+        <div className="container relative z-10 flex flex-col gap-6 px-4 py-24 text-white md:px-0">
           <Link href="/events" className="text-sm font-semibold text-white/80 hover:text-white">
             ← {t('events.backToEvents')}
           </Link>
@@ -322,8 +337,8 @@ export const EventDetailClient = ({ slug }: EventDetailClientProps) => {
         </div>
       </section>
 
-      <div className="container grid gap-6 py-16 lg:grid-cols-[2fr_1fr]">
-        <article className="rounded-3xl border border-white/10 bg-white/70 p-8 text-base leading-relaxed shadow-2xl backdrop-blur">
+      <div className="container grid gap-6 px-4 py-16 md:px-0 lg:grid-cols-[2fr_1fr]">
+        <article className="rounded-3xl border border-white/10 bg-white/70 p-6 text-base leading-relaxed backdrop-blur md:p-8">
           <h2 className="text-2xl font-bold text-text-primary">{t('events.detailsTitle')}</h2>
           <p className="mt-4 whitespace-pre-wrap text-text-secondary">
             {localizedDescription ?? localizedSummary ?? t('events.details.descriptionFallback')}
@@ -364,7 +379,7 @@ export const EventDetailClient = ({ slug }: EventDetailClientProps) => {
         </article>
 
         <aside className="space-y-6">
-          <div className="rounded-3xl border border-border bg-white/80 p-6 shadow-card backdrop-blur">
+          <div className="rounded-3xl border border-border bg-white/80 p-6 backdrop-blur">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-text-primary">{t('events.details.metaTitle')}</h3>
               {typeof event.price === 'number' && (
@@ -384,9 +399,25 @@ export const EventDetailClient = ({ slug }: EventDetailClientProps) => {
             >
               {shareState === 'copied' ? t('events.details.shareSuccess') : t('events.details.shareLabel')}
             </button>
+            <div className="mt-4 rounded-2xl border border-border bg-white p-4 text-center">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-text-secondary">
+                {t('events.details.shareQrLabel')}
+              </p>
+              <div className="mt-3 flex justify-center">
+                <QRCodeSVG value={eventShareUrl} size={140} />
+              </div>
+              <a
+                href={eventShareUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 block break-all text-xs text-primary underline"
+              >
+                {t('events.details.shareLinkLabel')}
+              </a>
+            </div>
           </div>
 
-          <div className="rounded-3xl border border-border bg-white/80 p-6 shadow-card backdrop-blur">
+          <div className="rounded-3xl border border-border bg-white/80 p-6 backdrop-blur">
             <RegistrationButton
               status={registration?.status ?? null}
               isPaid={isPaidEvent}
@@ -492,7 +523,7 @@ const RegistrationButton = ({
   return (
     <button
       type="button"
-      className="w-full rounded-2xl bg-primary px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-primary/30 disabled:opacity-50"
+      className="w-full rounded-2xl bg-primary px-6 py-3 text-sm font-semibold text-white disabled:opacity-50"
       onClick={onClick}
     >
       {t('events.detail.register')}
