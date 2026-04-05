@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    match /cms_events/{eventId} {
+      allow read: if resource.data.status == 'published';
+    }
+
+    match /cms_posts/{postId} {
+      allow read: if resource.data.status == 'published';
+    }
+
+    match /cms_content_blocks/{blockId} {
+      allow read: if resource.data.status == 'published';
+    }
+
+    match /cms_social_links/{linkId} {
+      allow read: if resource.data.isActive == true;
+    }
+
+    match /cms_payment_instructions/{docId} {
+      allow read: if resource.data.isActive == true;
+    }
+
+    match /cms_payment_contacts/{docId} {
+      allow read: if resource.data.isActive == true;
+    }
+
+    match /cms_testimonials/{testimonialId} {
+      allow read: if true;
+    }
+
+    match /cms_teams/{teamId} {
+      allow read: if true;
+    }
+
+    match /cms_team_members/{memberId} {
+      allow read: if true;
+    }
+
+    match /cms_users/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /user_profiles/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /cms_event_registrations/{registrationId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
