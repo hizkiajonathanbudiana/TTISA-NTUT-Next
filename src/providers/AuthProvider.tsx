@@ -15,6 +15,8 @@ import { firebaseAuth } from '@/lib/firebase/client';
 
 const POST_LOGIN_REDIRECT_KEY = 'ttisa_post_login_redirect';
 const POST_LOGIN_REDIRECT_TTL_MS = 10 * 60 * 1000;
+const REDIRECT_IN_PROGRESS_KEY = 'ttisa_auth_redirect_in_progress';
+const REDIRECT_IN_PROGRESS_TTL_MS = 5 * 60 * 1000;
 
 const getCurrentPath = () => `${window.location.pathname}${window.location.search}${window.location.hash}`;
 
@@ -56,6 +58,28 @@ const readPostLoginRedirect = (): string | null => {
 const clearPostLoginRedirect = () => {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+};
+
+const markRedirectInProgress = () => {
+  if (typeof window === 'undefined') return;
+  sessionStorage.setItem(REDIRECT_IN_PROGRESS_KEY, String(Date.now()));
+};
+
+const clearRedirectInProgress = () => {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem(REDIRECT_IN_PROGRESS_KEY);
+};
+
+const isRedirectInProgress = () => {
+  if (typeof window === 'undefined') return false;
+  const raw = sessionStorage.getItem(REDIRECT_IN_PROGRESS_KEY);
+  if (!raw) return false;
+  const startedAt = Number(raw);
+  if (!Number.isFinite(startedAt) || Date.now() - startedAt > REDIRECT_IN_PROGRESS_TTL_MS) {
+    sessionStorage.removeItem(REDIRECT_IN_PROGRESS_KEY);
+    return false;
+  }
+  return true;
 };
 
 const shouldUseRedirectFlow = () => {
@@ -128,6 +152,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         console.warn('Failed to read redirect result', error);
       })
       .finally(() => {
+        clearRedirectInProgress();
         if (isMounted) {
           setRedirectReady(true);
         }
@@ -147,6 +172,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         handlePostLogin(nextUser);
       } else {
         postLoginHandledRef.current = null;
+        clearRedirectInProgress();
       }
     });
 
@@ -167,14 +193,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const provider = new GoogleAuthProvider();
     rememberPostLoginRedirect(redirectTo);
 
-    if (shouldUseRedirectFlow()) {
-      await signInWithRedirect(firebaseAuth, provider);
+    if (isRedirectInProgress()) {
       return null;
     }
 
     try {
       const credential = await signInWithPopup(firebaseAuth, provider);
       await syncUserProfile(credential.user);
+      clearRedirectInProgress();
       return credential.user;
     } catch (error: unknown) {
       const code =
@@ -182,7 +208,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           ? String((error as { code?: unknown }).code ?? '')
           : '';
 
-      if (code.includes('popup') || code === 'auth/cancelled-popup-request') {
+      const needsRedirect =
+        shouldUseRedirectFlow() ||
+        code.includes('popup') ||
+        code === 'auth/cancelled-popup-request' ||
+        code === 'auth/operation-not-supported-in-this-environment';
+
+      if (needsRedirect) {
+        markRedirectInProgress();
         await signInWithRedirect(firebaseAuth, provider);
         return null;
       }
