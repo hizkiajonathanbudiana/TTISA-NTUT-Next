@@ -340,12 +340,13 @@ const formatEventDateRange = (start?: string | null, end?: string | null) => {
 };
 
 export const EventRegisterClient = ({ slug }: { slug: string }) => {
-  const { user } = useAuth();
+  const { user, signInWithGoogle } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [formLanguage, setFormLanguage] = useState<FormLanguage>('en');
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [isUploadingProof, setIsUploadingProof] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const [origin, setOrigin] = useState('');
   const [showShareQr, setShowShareQr] = useState(false);
   const [shareState, setShareState] = useState<'idle' | 'copied'>('idle');
@@ -610,10 +611,19 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
                 <p className="mt-1 text-sm text-amber-800">{text.loginRequiredDescription}</p>
                 <button
                   type="button"
-                  onClick={() => router.push(`/login?redirect=${encodeURIComponent(`/events/${slug}/register`)}`)}
-                  className="mt-3 inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white"
+                  onClick={() => {
+                    if (isSigningIn) return;
+                    setIsSigningIn(true);
+                    signInWithGoogle(`/events/${slug}/register`)
+                      .catch((error) => {
+                        toast.error(error instanceof Error ? error.message : 'Google sign-in failed.');
+                      })
+                      .finally(() => setIsSigningIn(false));
+                  }}
+                  className="mt-3 inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-70"
+                  disabled={isSigningIn}
                 >
-                  {text.continueWithGoogle}
+                  {isSigningIn ? text.submitting : text.continueWithGoogle}
                 </button>
               </div>
             )}
