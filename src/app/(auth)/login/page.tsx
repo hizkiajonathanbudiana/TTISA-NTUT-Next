@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
@@ -13,18 +13,17 @@ export default function LoginPage() {
   const redirectRef = useRef("/");
   const { user, loading, signInWithGoogle } = useAuth();
   const attemptedRef = useRef(false);
-  const isIOS = useMemo(() => {
-    if (typeof window === "undefined") return false;
-    const ua = window.navigator.userAgent || "";
-    const isIOSDevice = /iPad|iPhone|iPod/.test(ua);
-    const isIPadDesktopMode = window.navigator.platform === "MacIntel" && window.navigator.maxTouchPoints > 1;
-    return isIOSDevice || isIPadDesktopMode;
-  }, []);
+  const [isIOS, setIsIOS] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
+
+    const ua = window.navigator.userAgent || "";
+    const isIOSDevice = /iPad|iPhone|iPod/.test(ua);
+    const isIPadDesktopMode = window.navigator.platform === "MacIntel" && window.navigator.maxTouchPoints > 1;
+    setIsIOS(isIOSDevice || isIPadDesktopMode);
 
     const redirect = new URLSearchParams(window.location.search).get("redirect");
     if (redirect) {
@@ -33,7 +32,7 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
-    if (loading || user || attemptedRef.current || isIOS) {
+    if (loading || user || attemptedRef.current || isIOS !== false) {
       return;
     }
 
@@ -47,7 +46,7 @@ export default function LoginPage() {
       .catch((error: unknown) => {
         toast.error(getAuthErrorMessage(error));
       });
-  }, [loading, router, signInWithGoogle, user]);
+  }, [isIOS, loading, router, signInWithGoogle, user]);
 
   if (loading || user) {
     return (
