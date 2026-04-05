@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   GoogleAuthProvider,
   getRedirectResult,
@@ -82,6 +82,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [authReady, setAuthReady] = useState(false);
   const [redirectReady, setRedirectReady] = useState(false);
+  const postLoginHandledRef = useRef<string | null>(null);
 
   const syncUserProfile = async (nextUser: User) => {
     const token = await nextUser.getIdToken();
@@ -93,10 +94,36 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
+  const handlePostLogin = (nextUser: User) => {
+    if (postLoginHandledRef.current === nextUser.uid) {
+      return;
+    }
+    postLoginHandledRef.current = nextUser.uid;
+
+    syncUserProfile(nextUser).catch((error) => {
+      console.warn('Failed to sync user profile', error);
+    });
+
+    const redirectTarget = readPostLoginRedirect();
+    if (redirectTarget) {
+      const currentPath = getCurrentPath();
+      clearPostLoginRedirect();
+      if (currentPath !== redirectTarget) {
+        window.location.replace(redirectTarget);
+      }
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
 
     getRedirectResult(firebaseAuth)
+      .then((result) => {
+        if (result?.user) {
+          setUser(result.user);
+          handlePostLogin(result.user);
+        }
+      })
       .catch((error) => {
         console.warn('Failed to read redirect result', error);
       })
@@ -117,19 +144,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setAuthReady(true);
 
       if (nextUser) {
-        syncUserProfile(nextUser).catch((error) => {
-          console.warn('Failed to sync user profile', error);
-        });
-
-        const redirectTarget = readPostLoginRedirect();
-        if (redirectTarget) {
-          const currentPath = getCurrentPath();
-          clearPostLoginRedirect();
-          if (currentPath !== redirectTarget) {
-            window.location.replace(redirectTarget);
-            return;
-          }
-        }
+        handlePostLogin(nextUser);
+      } else {
+        postLoginHandledRef.current = null;
       }
     });
 
@@ -143,6 +160,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const handleSignOut = async () => {
     await firebaseSignOut(firebaseAuth);
+    postLoginHandledRef.current = null;
   };
 
   const handleGoogleSignIn = async (redirectTo?: string) => {
