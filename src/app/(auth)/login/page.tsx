@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
@@ -13,6 +13,13 @@ export default function LoginPage() {
   const redirectRef = useRef("/");
   const { user, loading, signInWithGoogle } = useAuth();
   const attemptedRef = useRef(false);
+  const isIOS = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const ua = window.navigator.userAgent || "";
+    const isIOSDevice = /iPad|iPhone|iPod/.test(ua);
+    const isIPadDesktopMode = window.navigator.platform === "MacIntel" && window.navigator.maxTouchPoints > 1;
+    return isIOSDevice || isIPadDesktopMode;
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -26,7 +33,7 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
-    if (loading || user || attemptedRef.current) {
+    if (loading || user || attemptedRef.current || isIOS) {
       return;
     }
 
