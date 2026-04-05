@@ -10,6 +10,9 @@ const serverSchema = z.object({
   CLOUDINARY_API_KEY: z.string().min(1, 'CLOUDINARY_API_KEY is required'),
   CLOUDINARY_API_SECRET: z.string().min(1, 'CLOUDINARY_API_SECRET is required'),
   SESSION_COOKIE_MAX_AGE_DAYS: z.coerce.number().positive().default(5),
+  QUEUE_ENABLED: z.string().optional(),
+  QUEUE_SECRET: z.string().optional(),
+  QUEUE_COLLECTION: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().email('RESEND_FROM_EMAIL must be a valid email').optional(),
 });
@@ -24,6 +27,9 @@ const raw = {
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,
   SESSION_COOKIE_MAX_AGE_DAYS: process.env.SESSION_COOKIE_MAX_AGE_DAYS ?? '5',
   FIREBASE_STORAGE_BUCKET: process.env.FIREBASE_STORAGE_BUCKET,
+  QUEUE_ENABLED: process.env.QUEUE_ENABLED,
+  QUEUE_SECRET: process.env.QUEUE_SECRET,
+  QUEUE_COLLECTION: process.env.QUEUE_COLLECTION,
   RESEND_API_KEY: process.env.RESEND_API_KEY,
   RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL,
 };

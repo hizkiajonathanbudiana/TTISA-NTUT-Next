@@ -680,7 +680,7 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
               <input {...register('englishName', { required: text.requiredField })} disabled={isFormLocked} className="w-full rounded-xl border border-border bg-white p-3 disabled:cursor-not-allowed disabled:bg-neutral-100" />
             </Field>
             <Field label={text.chineseName} error={errors.chineseName?.message}>
-              <input {...register('chineseName', { required: text.requiredField })} disabled={isFormLocked} className="w-full rounded-xl border border-border bg-white p-3 disabled:cursor-not-allowed disabled:bg-neutral-100" />
+              <input {...register('chineseName')} disabled={isFormLocked} className="w-full rounded-xl border border-border bg-white p-3 disabled:cursor-not-allowed disabled:bg-neutral-100" />
             </Field>
             <Field label={text.department} error={errors.department?.message}>
               <input {...register('department', { required: text.requiredField })} disabled={isFormLocked} className="w-full rounded-xl border border-border bg-white p-3 disabled:cursor-not-allowed disabled:bg-neutral-100" />

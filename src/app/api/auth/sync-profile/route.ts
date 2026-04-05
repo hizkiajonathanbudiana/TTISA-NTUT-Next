@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAuthUser } from '@/lib/server/auth';
-import { requireAdminDb } from '@/lib/firebase/admin';
+import { processSyncProfile } from '@/lib/server/syncProfile';
+import { enqueueQueueJob, isQueueEnabled } from '@/lib/server/firestoreQueue';
 
 const optionalString = (value: unknown): string | null => {
   if (typeof value !== 'string') {
@@ -13,39 +14,19 @@ const optionalString = (value: unknown): string | null => {
 export async function POST(request: Request) {
   try {
     const authUser = await requireAuthUser(request);
-    const db = requireAdminDb();
+    const payload = {
+      uid: authUser.uid,
+      email: optionalString(authUser.email) ?? null,
+      name: optionalString(authUser.name) ?? null,
+    };
 
-    const cmsUserRef = db.collection('cms_users').doc(authUser.uid);
-    const profileRef = db.collection('user_profiles').doc(authUser.uid);
-    const cmsUserSnap = await cmsUserRef.get();
-    const cmsUserData = cmsUserSnap.data() ?? {};
+    if (isQueueEnabled()) {
+      await enqueueQueueJob({ path: '/api/queue/sync-profile', payload: { authUser: payload } });
+      return NextResponse.json({ success: true, queued: true }, { status: 202 });
+    }
 
-    const now = new Date();
-    const fallbackName = optionalString(authUser.name) ?? optionalString(authUser.email?.split('@')[0]) ?? 'Member';
-
-    await Promise.all([
-      cmsUserRef.set(
-        {
-          uid: authUser.uid,
-          email: optionalString(authUser.email) ?? null,
-          englishName: optionalString(cmsUserData.englishName) ?? fallbackName,
-          role: optionalString(cmsUserData.role) ?? 'member',
-          updatedAt: now,
-          createdAt: cmsUserSnap.exists ? cmsUserData.createdAt ?? now : now,
-        },
-        { merge: true },
-      ),
-      profileRef.set(
-        {
-          englishName: optionalString(cmsUserData.englishName) ?? fallbackName,
-          updatedAt: now,
-          createdAt: now,
-        },
-        { merge: true },
-      ),
-    ]);
-
-    return NextResponse.json({ success: true });
+    const result = await processSyncProfile(payload);
+    return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to sync user profile.';
     return NextResponse.json({ error: message }, { status: 400 });

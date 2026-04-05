@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
-import { requireAdminAuth, requireAdminDb } from '@/lib/firebase/admin';
+import { requireAdminAuth } from '@/lib/firebase/admin';
+import { enqueueQueueJob, isQueueEnabled } from '@/lib/server/firestoreQueue';
+import { processCheckin, CheckinError } from '@/lib/server/checkin';
 
 const errorResponse = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -17,76 +19,21 @@ export async function POST(request: Request) {
     }
 
     const auth = requireAdminAuth();
-    const db = requireAdminDb();
     const idToken = authHeader.replace('Bearer ', '').trim();
     const decoded = await auth.verifyIdToken(idToken);
     const uid = decoded.uid;
 
-    const tokenSnapshot = await db
-      .collection('cms_event_tokens')
-      .where('token', '==', token)
-      .limit(1)
-      .get();
-
-    const tokenDoc = tokenSnapshot.docs[0];
-    if (!tokenDoc) {
-      return errorResponse('Invalid or expired check-in token.');
+    if (isQueueEnabled()) {
+      await enqueueQueueJob({ path: '/api/queue/checkin', payload: { token, uid } });
+      return NextResponse.json({ message: 'Check-in queued. Please wait a moment and refresh.' }, { status: 202 });
     }
 
-    const tokenData = tokenDoc.data() ?? {};
-    const eventId = (tokenData.eventId ?? tokenData.event_id ?? '').toString();
-    if (!eventId) {
-      return errorResponse('This token is missing its event reference. Please generate a new one.');
-    }
-    const expiresAtValue = tokenData.expiresAt ?? tokenData.expires_at;
-    const expiresAt = (() => {
-      if (!expiresAtValue) return null;
-      if (expiresAtValue instanceof Date) return expiresAtValue;
-      if (typeof expiresAtValue === 'object' && 'toDate' in expiresAtValue && typeof expiresAtValue.toDate === 'function') {
-        return expiresAtValue.toDate();
-      }
-      const parsed = new Date(expiresAtValue);
-      return Number.isNaN(parsed.valueOf()) ? null : parsed;
-    })();
-    if (!expiresAt || expiresAt < new Date()) {
-      return errorResponse('This check-in token has expired.');
-    }
-
-    const registrationSnapshot = await db
-      .collection('cms_event_registrations')
-      .where('eventId', '==', eventId)
-      .where('userId', '==', uid)
-      .limit(1)
-      .get();
-
-    const registrationDoc = registrationSnapshot.docs[0];
-    if (!registrationDoc) {
-      return errorResponse('Registration not found. Please register for the event first.');
-    }
-
-    const registrationData = registrationDoc.data() ?? {};
-    const status = (registrationData.status ?? 'pending').toString();
-    if (status !== 'accepted') {
-      return errorResponse(`Your registration status is '${status}'. It must be 'accepted' to check in.`);
-    }
-
-    const attendanceRef = db.collection('cms_event_attendances').doc(registrationDoc.id);
-    const attendanceSnapshot = await attendanceRef.get();
-    if (attendanceSnapshot.exists) {
-      return NextResponse.json({ message: 'You have already checked in for this event.' });
-    }
-
-    await attendanceRef.set({
-      registrationId: registrationDoc.id,
-      eventId,
-      userId: uid,
-      tokenId: tokenDoc.id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    return NextResponse.json({ message: 'Welcome! You are now checked in.' });
+    const result = await processCheckin({ token, uid });
+    return NextResponse.json({ message: result.message });
   } catch (error) {
+    if (error instanceof CheckinError) {
+      return errorResponse(error.message, error.status);
+    }
     const message = error instanceof Error ? error.message : 'Failed to complete check-in.';
     return errorResponse(message, 400);
   }

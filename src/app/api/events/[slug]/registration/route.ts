@@ -2,6 +2,14 @@ import { NextResponse } from 'next/server';
 import { requireAdminDb } from '@/lib/firebase/admin';
 import { requireAuthUser } from '@/lib/server/auth';
 import { coerceDate } from '@/lib/utils/dates';
+import { enqueueQueueJob, isQueueEnabled } from '@/lib/server/firestoreQueue';
+import {
+  mapProfile,
+  mapRegistration,
+  parseRegistrationInput,
+  resolveEvent,
+  saveRegistrationSubmission,
+} from '@/lib/server/registrationForm';
 
 const errorResponse = (message: string, status = 400) => NextResponse.json({ error: message }, { status });
 
@@ -9,83 +17,10 @@ type RouteContext = { params: Promise<{ slug: string }> };
 
 type PaymentMethod = 'cash' | 'transfer';
 
-const STUDENT_STATUS_OPTIONS = new Set(['本國生', '僑生', '陸生', '外籍生', 'exchange_student']);
-const GENDER_OPTIONS = new Set(['male', 'female', 'rather_not_say']);
-
 const optionalString = (value: unknown): string | null => {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-};
-
-const normalizeBirthday = (value: unknown): string | null => {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-
-  const date = new Date(trimmed);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return date.toISOString().slice(0, 10);
-};
-
-const mapRegistration = (id: string, data: Record<string, unknown>) => {
-  const birthday = normalizeBirthday(data.birthday ?? data.birthDate ?? data.birth_date);
-  const status = (data.status ?? 'pending').toString();
-
-  return {
-    id,
-    status: status === 'accepted' || status === 'rejected' ? status : 'pending',
-    englishName: optionalString(data.englishName ?? data.english_name),
-    chineseName: optionalString(data.chineseName ?? data.chinese_name),
-    department: optionalString(data.department),
-    nationality: optionalString(data.nationality),
-    studentId: optionalString(data.studentId ?? data.student_id),
-    birthday,
-    gender: optionalString(data.gender),
-    studentStatus: optionalString(data.studentStatus ?? data.student_status),
-    paymentMethod: optionalString(data.paymentMethod ?? data.payment_method),
-    paymentProofUrl: optionalString(data.paymentProofUrl ?? data.payment_proof_url),
-    createdAt: coerceDate(data.createdAt ?? data.created_at)?.toISOString() ?? new Date().toISOString(),
-    updatedAt: coerceDate(data.updatedAt ?? data.updated_at)?.toISOString() ?? null,
-    statusLabelEn:
-      status === 'accepted' ? 'Accepted' : status === 'rejected' ? 'Rejected' : 'Pending',
-    statusLabelZhHant:
-      status === 'accepted' ? '已通過' : status === 'rejected' ? '已拒絕' : '審核中',
-  };
-};
-
-const mapProfile = (profileData: Record<string, unknown>, userData: Record<string, unknown>) => {
-  const birthday = normalizeBirthday(profileData.birthDate ?? profileData.birth_date);
-  return {
-    englishName: optionalString(profileData.englishName ?? profileData.english_name ?? userData.englishName ?? userData.fullName),
-    chineseName: optionalString(profileData.chineseName ?? profileData.chinese_name),
-    department: optionalString(profileData.department ?? userData.department),
-    nationality: optionalString(profileData.nationality ?? userData.nationality),
-    studentId: optionalString(profileData.studentId ?? profileData.student_id ?? userData.studentId ?? userData.student_id),
-    birthday,
-    gender: optionalString(profileData.gender),
-    studentStatus: optionalString(profileData.studentStatus ?? profileData.student_status),
-  };
-};
-
-const resolveEvent = async (slug: string) => {
-  const db = requireAdminDb();
-  const snapshot = await db
-    .collection('cms_events')
-    .where('slug', '==', slug)
-    .where('status', '==', 'published')
-    .limit(1)
-    .get();
-
-  const eventDoc = snapshot.docs[0];
-  if (!eventDoc) {
-    throw new Error('Event not found.');
-  }
-
-  return { db, eventDoc };
 };
 
 export async function GET(request: Request, context: RouteContext) {
@@ -186,136 +121,32 @@ export async function POST(request: Request, context: RouteContext) {
 
     const authUser = await requireAuthUser(request);
     const body = await request.json().catch(() => ({} as Record<string, unknown>));
+    const input = parseRegistrationInput(body);
 
-    const englishName = optionalString(body.englishName);
-    const chineseName = optionalString(body.chineseName);
-    const department = optionalString(body.department);
-    const nationality = optionalString(body.nationality);
-    const studentId = optionalString(body.studentId);
-    const birthday = normalizeBirthday(body.birthday);
-    const gender = optionalString(body.gender);
-    const studentStatus = optionalString(body.studentStatus);
-    const paymentMethod = optionalString(body.paymentMethod) as PaymentMethod | null;
-    const paymentProofUrl = optionalString(body.paymentProofUrl);
-
-    if (!englishName || !chineseName || !department || !nationality || !studentId || !birthday || !gender || !studentStatus || !paymentMethod) {
-      return errorResponse('Please complete all required fields.', 400);
-    }
-
-    if (!GENDER_OPTIONS.has(gender)) {
-      return errorResponse('Invalid gender value.', 400);
-    }
-
-    if (!STUDENT_STATUS_OPTIONS.has(studentStatus)) {
-      return errorResponse('Invalid student status value.', 400);
-    }
-
-    if (paymentMethod !== 'cash' && paymentMethod !== 'transfer') {
-      return errorResponse('Invalid payment method.', 400);
-    }
-
-    if (paymentMethod === 'transfer' && !paymentProofUrl) {
-      return errorResponse('Proof of payment is required for transfer.', 400);
-    }
-
-    const { db, eventDoc } = await resolveEvent(slug);
-    const eventData = eventDoc.data() ?? {};
-    const eventId = eventDoc.id;
-
-    const startDate = coerceDate(eventData.startDate ?? eventData.start_at);
-    if (startDate && startDate < new Date()) {
-      return errorResponse('This event has already started or ended.', 400);
-    }
-
-    const [userSnap, registrationSnap] = await Promise.all([
-      db.collection('cms_users').doc(authUser.uid).get(),
-      db
-        .collection('cms_event_registrations')
-        .where('eventId', '==', eventId)
-        .where('userId', '==', authUser.uid)
-        .limit(1)
-        .get(),
-    ]);
-
-    const userData = userSnap.data() ?? {};
-    const email = optionalString(userData.email ?? authUser.email) ?? authUser.email ?? null;
-
-    await db.collection('user_profiles').doc(authUser.uid).set(
-      {
-        englishName,
-        chineseName,
-        department,
-        nationality,
-        studentId,
-        gender,
-        birthDate: birthday,
-        studentStatus,
-        updatedAt: new Date(),
-      },
-      { merge: true },
-    );
-
-    const existingDoc = registrationSnap.docs[0];
-    if (existingDoc) {
-      const existingData = existingDoc.data() ?? {};
-      const existingStatus = (existingData.status ?? 'pending').toString();
-      if (existingStatus !== 'pending') {
-        return errorResponse('This registration is already reviewed and can no longer be edited.', 400);
-      }
-
-      await existingDoc.ref.set(
-        {
-          englishName,
-          chineseName,
-          department,
-          nationality,
-          studentId,
-          birthday,
-          gender,
-          studentStatus,
-          paymentMethod,
-          paymentProofUrl: paymentMethod === 'transfer' ? paymentProofUrl : null,
-          email,
-          updatedAt: new Date(),
+    if (isQueueEnabled()) {
+      await enqueueQueueJob({
+        path: '/api/queue/registration',
+        payload: {
+          slug,
+          authUser: {
+            uid: authUser.uid,
+            email: authUser.email ?? null,
+            name: authUser.name ?? null,
+          },
+          body,
         },
-        { merge: true },
-      );
-
-      const refreshed = await existingDoc.ref.get();
-      return NextResponse.json({
-        registration: mapRegistration(refreshed.id, refreshed.data() ?? {}),
-        canEdit: true,
       });
+
+      return NextResponse.json({ canEdit: true, queued: true }, { status: 202 });
     }
 
-    const docRef = db.collection('cms_event_registrations').doc();
-    const registrationData = {
-      eventId,
-      eventSlug: (eventData.slug ?? slug ?? eventDoc.id).toString(),
-      eventTitle: (eventData.title ?? eventData.titleEn ?? 'Untitled Event').toString(),
-      userId: authUser.uid,
-      englishName,
-      chineseName,
-      department,
-      nationality,
-      studentId,
-      birthday,
-      gender,
-      studentStatus,
-      paymentMethod,
-      paymentProofUrl: paymentMethod === 'transfer' ? paymentProofUrl : null,
-      email,
-      status: 'pending',
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    const result = await saveRegistrationSubmission(slug, {
+      uid: authUser.uid,
+      email: authUser.email ?? null,
+      name: authUser.name ?? null,
+    }, input);
 
-    await docRef.set(registrationData);
-
-    return NextResponse.json({
-      registration: mapRegistration(docRef.id, registrationData),
-      canEdit: true,
-    });
+    return NextResponse.json(result);
   } catch (error) {
     console.error('Failed to save event registration form', error);
     const message = error instanceof Error ? error.message : 'Unable to save registration form.';
