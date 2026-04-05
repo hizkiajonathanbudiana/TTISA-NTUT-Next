@@ -265,9 +265,9 @@ export default function HomePage() {
             <AnimatedSection className="bg-white/30 py-20 backdrop-blur-sm">
               <div className="container mx-auto px-4">
                 <div className="text-center">
-                  <h2 className="text-3xl font-bold text-text-primary">Follow us on Instagram</h2>
+                  <h2 className="text-3xl font-bold text-text-primary">{t('homepage.instagramTitle')}</h2>
                   <p className="mx-auto mt-3 max-w-2xl text-text-secondary">
-                    For the fastest updates, event highlights, and behind-the-scenes moments, follow our official Instagram.
+                    {t('homepage.instagramSubtitle')}
                   </p>
                 </div>
                 <div className="mt-12 text-center">
@@ -277,7 +277,7 @@ export default function HomePage() {
                     rel="noreferrer"
                     className="inline-flex items-center rounded-full bg-primary px-6 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-primary-hover"
                   >
-                    Follow @TTISA NTUT
+                    {t('homepage.instagramButton')}
                   </a>
                 </div>
               </div>
