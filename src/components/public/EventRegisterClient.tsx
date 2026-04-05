@@ -340,7 +340,7 @@ const formatEventDateRange = (start?: string | null, end?: string | null) => {
 };
 
 export const EventRegisterClient = ({ slug }: { slug: string }) => {
-  const { user, signInWithGoogle } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [formLanguage, setFormLanguage] = useState<FormLanguage>('en');
@@ -610,7 +610,7 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
                 <p className="mt-1 text-sm text-amber-800">{text.loginRequiredDescription}</p>
                 <button
                   type="button"
-                  onClick={() => void signInWithGoogle(`/events/${slug}/register`)}
+                  onClick={() => router.push(`/login?redirect=${encodeURIComponent(`/events/${slug}/register`)}`)}
                   className="mt-3 inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white"
                 >
                   {text.continueWithGoogle}
