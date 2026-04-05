@@ -42,6 +42,40 @@ type ContactModalProps = {
   onSubmit: (values: ContactFormValues) => Promise<void>;
 };
 
+const normalizeContactInfo = (platform: ContactFormValues['platform'], contactInfo: string) => {
+  const value = contactInfo.trim();
+  if (!value) return value;
+
+  if (platform === 'line') {
+    const lower = value.toLowerCase();
+    if (lower.startsWith('https://') || lower.startsWith('http://') || lower.startsWith('line://')) {
+      return value;
+    }
+    if (lower.startsWith('line.me/')) {
+      return `https://${value}`;
+    }
+    const lineId = value.replace(/^@/, '');
+    return `https://line.me/ti/p/~${lineId}`;
+  }
+
+  if (platform === 'instagram') {
+    const lower = value.toLowerCase();
+    if (lower.startsWith('https://') || lower.startsWith('http://')) {
+      return value;
+    }
+    const handle = value.replace(/^@/, '');
+    return `https://instagram.com/${handle}`;
+  }
+
+  if (platform === 'email') {
+    if (value.toLowerCase().startsWith('mailto:')) {
+      return value;
+    }
+  }
+
+  return value;
+};
+
 const ModalShell = ({ children, title, onClose }: { children: ReactNode; title: string; onClose: () => void }) => (
   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
     <div className="w-full max-w-2xl rounded-3xl bg-white p-8 shadow-2xl">
@@ -185,8 +219,9 @@ const ContactModal = ({ initialValue, onClose, onSubmit }: ContactModalProps) =>
           <input
             {...register('contactInfo')}
             className="mt-1 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm shadow-inner"
-            placeholder="@ttisa_ntut or finance@ttisa.org"
+            placeholder="LINE URL/ID, Instagram URL/@handle, or email"
           />
+          <p className="mt-1 text-xs text-text-secondary">For LINE, you can enter either full link (e.g. https://line.me/ti/p/LJEzJeJTGT) or LINE ID.</p>
           {errors.contactInfo && <p className="mt-1 text-sm text-system-danger">{errors.contactInfo.message}</p>}
         </div>
         <div className="grid gap-4 md:grid-cols-2">
@@ -346,11 +381,15 @@ export default function PaymentsPage() {
 
   const saveContact = async (values: ContactFormValues) => {
     try {
+      const payload = {
+        ...values,
+        contactInfo: normalizeContactInfo(values.platform, values.contactInfo),
+      };
       if (editingContact) {
-        await contactCollection.updateItem(editingContact.id, values);
+        await contactCollection.updateItem(editingContact.id, payload);
         toast.success('Contact updated');
       } else {
-        await contactCollection.createItem(values);
+        await contactCollection.createItem(payload);
         toast.success('Contact created');
       }
       setEditingContact(null);

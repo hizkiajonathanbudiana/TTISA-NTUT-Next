@@ -21,8 +21,14 @@ const EventFormSchema = z
     location: z.string().optional().nullable(),
     summary: z.string().optional().nullable(),
     description: z.string().optional().nullable(),
-    coverImageUrl: z.string().url('Provide a valid URL').optional().nullable(),
-    mediaDriveUrl: z.string().url('Provide a valid URL').optional().nullable(),
+    coverImageUrl: z
+      .union([z.string().url('Provide a valid URL'), z.literal(''), z.null(), z.undefined()])
+      .optional()
+      .transform((value) => (typeof value === 'string' ? value.trim() : value)),
+    mediaDriveUrl: z
+      .union([z.string().url('Provide a valid URL'), z.literal(''), z.null(), z.undefined()])
+      .optional()
+      .transform((value) => (typeof value === 'string' ? value.trim() : value)),
     isPaid: z.boolean().default(false),
     price: z.number().min(0, 'Price must be 0 or greater').optional().nullable(),
   })

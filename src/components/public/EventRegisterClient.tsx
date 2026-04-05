@@ -166,10 +166,27 @@ const studentStatusOptions = [
 ] as const;
 
 const formatContact = (platform: string, info: string) => {
-  if (platform === 'email') return `mailto:${info}`;
-  if (platform === 'line') return `https://line.me/ti/p/~${info}`;
-  if (platform === 'instagram') return `https://instagram.com/${info.replace(/^@/, '')}`;
-  return info;
+  const value = info.trim();
+  if (!value) return value;
+
+  if (platform === 'email') {
+    return value.toLowerCase().startsWith('mailto:') ? value : `mailto:${value}`;
+  }
+
+  if (platform === 'line') {
+    const lower = value.toLowerCase();
+    if (lower.startsWith('https://') || lower.startsWith('http://') || lower.startsWith('line://')) return value;
+    if (lower.startsWith('line.me/')) return `https://${value}`;
+    return `https://line.me/ti/p/~${value.replace(/^@/, '')}`;
+  }
+
+  if (platform === 'instagram') {
+    const lower = value.toLowerCase();
+    if (lower.startsWith('https://') || lower.startsWith('http://')) return value;
+    return `https://instagram.com/${value.replace(/^@/, '')}`;
+  }
+
+  return value;
 };
 
 const uiText: Record<FormLanguage, UiText> = {

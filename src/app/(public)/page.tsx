@@ -6,8 +6,8 @@ import { motion } from 'framer-motion';
 import { useTranslation } from '@/providers/LanguageProvider';
 import { useQuery } from '@tanstack/react-query';
 import {
+  fetchPaginatedEvents,
   fetchHomepagePromoContent,
-  fetchPublishedEvents,
   fetchSocialLinks,
   fetchTestimonials,
 } from '@/lib/data/publicContent';
@@ -118,11 +118,19 @@ export default function HomePage() {
   });
 
   const {
-    data: events,
-    isLoading: isLoadingEvents,
+    data: upcomingEventsData,
+    isLoading: isLoadingUpcomingEvents,
   } = useQuery({
-    queryKey: ['events', 'homepage'],
-    queryFn: () => fetchPublishedEvents(3),
+    queryKey: ['events', 'homepage', 'upcoming'],
+    queryFn: () => fetchPaginatedEvents('upcoming', 3),
+  });
+
+  const {
+    data: pastEventsData,
+    isLoading: isLoadingPastEvents,
+  } = useQuery({
+    queryKey: ['events', 'homepage', 'past'],
+    queryFn: () => fetchPaginatedEvents('past', 3),
   });
 
   const { data: socialLinks } = useQuery({
@@ -138,7 +146,9 @@ export default function HomePage() {
     queryFn: () => fetchTestimonials(6),
   });
 
-  const isLoadingHome = isLoadingEvents || isLoadingTestimonials;
+  const isLoadingHome = isLoadingUpcomingEvents || isLoadingPastEvents || isLoadingTestimonials;
+  const upcomingEvents = upcomingEventsData?.data ?? [];
+  const pastEvents = pastEventsData?.data ?? [];
   const instagramLink = socialLinks?.find((item) => item.platform === 'instagram')?.url ?? null;
 
   const fallbackPromoCards = [
@@ -230,16 +240,16 @@ export default function HomePage() {
         <LoadingHamster />
       ) : (
         <>
-          {events && events.length > 0 && (
-            <>
-              <WaveSeparator />
-              <AnimatedSection className="py-20">
-                <div className="container mx-auto px-4">
-                  <div className="text-center">
-                    <h2 className="text-3xl font-bold text-text-primary">{t('homepage.eventsTitle')}</h2>
-                  </div>
+          <>
+            <WaveSeparator />
+            <AnimatedSection className="py-20">
+              <div className="container mx-auto px-4">
+                <div className="text-center">
+                  <h2 className="text-3xl font-bold text-text-primary">{t('homepage.eventsTitle')}</h2>
+                </div>
+                {upcomingEvents.length > 0 ? (
                   <div className="mt-12 grid gap-8 md:grid-cols-2 lg:grid-cols-3">
-                    {events.map((event, idx) => (
+                    {upcomingEvents.map((event, idx) => (
                       <motion.div
                         key={event.id}
                         initial={{ opacity: 0, y: 20 }}
@@ -251,15 +261,47 @@ export default function HomePage() {
                       </motion.div>
                     ))}
                   </div>
-                  <div className="mt-12 text-center">
-                    <Link href="/events" className="font-bold text-primary hover:underline">
-                      {t('homepage.eventsButton')} →
-                    </Link>
-                  </div>
+                ) : (
+                  <p className="mt-10 text-center text-sm text-text-secondary">{t('events.noUpcoming')}</p>
+                )}
+                <div className="mt-12 text-center">
+                  <Link href="/events" className="font-bold text-primary hover:underline">
+                    {t('homepage.eventsButton')} →
+                  </Link>
                 </div>
-              </AnimatedSection>
-            </>
-          )}
+              </div>
+            </AnimatedSection>
+
+            <AnimatedSection className="py-20 pt-0">
+              <div className="container mx-auto px-4">
+                <div className="text-center">
+                  <h2 className="text-3xl font-bold text-text-primary">{t('homepage.pastEventsTitle')}</h2>
+                </div>
+                {pastEvents.length > 0 ? (
+                  <div className="mt-12 grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+                    {pastEvents.map((event, idx) => (
+                      <motion.div
+                        key={event.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true }}
+                        transition={{ duration: 0.5, delay: idx * 0.1 }}
+                      >
+                        <EventCard event={event} />
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-10 text-center text-sm text-text-secondary">{t('events.noPast')}</p>
+                )}
+                <div className="mt-12 text-center">
+                  <Link href="/events" className="font-bold text-primary hover:underline">
+                    {t('homepage.pastEventsButton')} →
+                  </Link>
+                </div>
+              </div>
+            </AnimatedSection>
+          </>
 
           {instagramLink && (
             <AnimatedSection className="bg-white/30 py-20 backdrop-blur-sm">
