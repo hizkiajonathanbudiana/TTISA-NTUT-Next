@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import {
   GoogleAuthProvider,
+  getRedirectResult,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signInWithPopup,
@@ -79,6 +80,8 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
+  const [redirectReady, setRedirectReady] = useState(false);
 
   const syncUserProfile = async (nextUser: User) => {
     const token = await nextUser.getIdToken();
@@ -91,8 +94,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
+    let isMounted = true;
+
+    getRedirectResult(firebaseAuth)
+      .catch((error) => {
+        console.warn('Failed to read redirect result', error);
+      })
+      .finally(() => {
+        if (isMounted) {
+          setRedirectReady(true);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(firebaseAuth, (nextUser) => {
       setUser(nextUser);
+      setAuthReady(true);
 
       if (nextUser) {
         syncUserProfile(nextUser).catch((error) => {
@@ -102,19 +124,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const redirectTarget = readPostLoginRedirect();
         if (redirectTarget) {
           const currentPath = getCurrentPath();
+          clearPostLoginRedirect();
           if (currentPath !== redirectTarget) {
-            clearPostLoginRedirect();
             window.location.replace(redirectTarget);
             return;
           }
         }
       }
-
-      setLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    const nextLoading = !(authReady && redirectReady);
+    setLoading(nextLoading);
+  }, [authReady, redirectReady]);
 
   const handleSignOut = async () => {
     await firebaseSignOut(firebaseAuth);
