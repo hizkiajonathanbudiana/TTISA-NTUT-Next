@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
 import clsx from 'clsx';
 import { motion } from 'framer-motion';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { z } from 'zod';
@@ -175,7 +175,9 @@ export const EventDetailClient = ({ slug }: EventDetailClientProps) => {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [shareState, setShareState] = useState<'idle' | 'copied'>('idle');
+  const [showShareQr, setShowShareQr] = useState(false);
   const [origin, setOrigin] = useState('');
+  const shareQrRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -248,6 +250,7 @@ export const EventDetailClient = ({ slug }: EventDetailClientProps) => {
   });
 
   const handleShare = async () => {
+    setShowShareQr(true);
     try {
       if (navigator.share && event) {
         await navigator.share({
@@ -264,6 +267,23 @@ export const EventDetailClient = ({ slug }: EventDetailClientProps) => {
       console.warn('Share failed', error);
       toast.error(t('events.detail.shareError'));
     }
+  };
+
+  const handleSaveShareQr = () => {
+    const svg = shareQrRef.current?.querySelector('svg');
+    if (!svg) {
+      toast.error('QR code is not ready yet.');
+      return;
+    }
+
+    const serialized = new XMLSerializer().serializeToString(svg);
+    const blob = new Blob([serialized], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `event-${slug}-qr.svg`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   if (detailQuery.isLoading) {
@@ -338,7 +358,7 @@ export const EventDetailClient = ({ slug }: EventDetailClientProps) => {
       </section>
 
       <div className="container grid gap-6 px-4 py-16 md:px-0 lg:grid-cols-[2fr_1fr]">
-        <article className="rounded-3xl border border-white/10 bg-white/70 p-6 text-base leading-relaxed backdrop-blur md:p-8">
+        <article className="rounded-3xl border border-white/10 bg-white/70 p-6 text-base leading-relaxed shadow-sm shadow-black/10 backdrop-blur md:p-8">
           <h2 className="text-2xl font-bold text-text-primary">{t('events.detailsTitle')}</h2>
           <p className="mt-4 whitespace-pre-wrap text-text-secondary">
             {localizedDescription ?? localizedSummary ?? t('events.details.descriptionFallback')}
@@ -379,7 +399,17 @@ export const EventDetailClient = ({ slug }: EventDetailClientProps) => {
         </article>
 
         <aside className="space-y-6">
-          <div className="rounded-3xl border border-border bg-white/80 p-6 backdrop-blur">
+          <div className="rounded-3xl border border-border bg-white/80 p-6 shadow-sm shadow-black/10 backdrop-blur">
+            <RegistrationButton
+              status={registration?.status ?? null}
+              isPaid={isPaidEvent}
+              onClick={handleRegisterClick}
+              t={t}
+              eventEnded={Boolean(event.endDate && event.endDate < new Date())}
+            />
+          </div>
+
+          <div className="rounded-3xl border border-border bg-white/80 p-6 shadow-sm shadow-black/10 backdrop-blur">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold text-text-primary">{t('events.details.metaTitle')}</h3>
               {typeof event.price === 'number' && (
@@ -399,32 +429,23 @@ export const EventDetailClient = ({ slug }: EventDetailClientProps) => {
             >
               {shareState === 'copied' ? t('events.details.shareSuccess') : t('events.details.shareLabel')}
             </button>
-            <div className="mt-4 rounded-2xl border border-border bg-white p-4 text-center">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-text-secondary">
-                {t('events.details.shareQrLabel')}
-              </p>
-              <div className="mt-3 flex justify-center">
-                <QRCodeSVG value={eventShareUrl} size={140} />
+            {showShareQr && (
+              <div className="mt-4 rounded-2xl border border-border bg-white p-4 text-center">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-text-secondary">
+                  {t('events.details.shareQrLabel')}
+                </p>
+                <div ref={shareQrRef} className="mt-3 flex justify-center">
+                  <QRCodeSVG value={eventShareUrl} size={140} />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveShareQr}
+                  className="mt-3 rounded-full border border-border px-4 py-2 text-xs font-semibold text-text-primary hover:border-primary hover:text-primary"
+                >
+                  Save QR
+                </button>
               </div>
-              <a
-                href={eventShareUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 block break-all text-xs text-primary underline"
-              >
-                {t('events.details.shareLinkLabel')}
-              </a>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-border bg-white/80 p-6 backdrop-blur">
-            <RegistrationButton
-              status={registration?.status ?? null}
-              isPaid={isPaidEvent}
-              onClick={handleRegisterClick}
-              t={t}
-              eventEnded={Boolean(event.endDate && event.endDate < new Date())}
-            />
+            )}
           </div>
         </aside>
       </div>

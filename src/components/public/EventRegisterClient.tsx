@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
@@ -75,7 +75,8 @@ type UiText = {
   continueWithGoogle: string;
   shareFormLabel: string;
   shareFormQrLabel: string;
-  shareFormLinkLabel: string;
+  shareFormSaveQr: string;
+  shareCopied: string;
 };
 
 type PublicEventPayload = {
@@ -272,7 +273,8 @@ const uiText: Record<FormLanguage, UiText> = {
     continueWithGoogle: 'Continue with Google',
     shareFormLabel: 'Share this form',
     shareFormQrLabel: 'Scan QR to open registration form',
-    shareFormLinkLabel: 'Open registration form link',
+    shareFormSaveQr: 'Save QR',
+    shareCopied: 'Link copied!',
   },
   'zh-HANT': {
     titleSuffix: '報名表',
@@ -323,7 +325,8 @@ const uiText: Record<FormLanguage, UiText> = {
     continueWithGoogle: '使用 Google 繼續',
     shareFormLabel: '分享報名表',
     shareFormQrLabel: '掃描 QR 開啟報名表',
-    shareFormLinkLabel: '開啟報名表連結',
+    shareFormSaveQr: '儲存 QR',
+    shareCopied: '連結已複製！',
   },
 };
 
@@ -344,6 +347,9 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
   const [proofUrl, setProofUrl] = useState<string | null>(null);
   const [isUploadingProof, setIsUploadingProof] = useState(false);
   const [origin, setOrigin] = useState('');
+  const [showShareQr, setShowShareQr] = useState(false);
+  const [shareState, setShareState] = useState<'idle' | 'copied'>('idle');
+  const shareQrRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -536,6 +542,42 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
       ? statusZh ?? (status === 'accepted' ? text.statusAccepted : status === 'rejected' ? text.statusRejected : text.statusPending)
       : statusEn ?? (status === 'accepted' ? text.statusAccepted : status === 'rejected' ? text.statusRejected : text.statusPending);
 
+  const handleShareForm = async () => {
+    setShowShareQr(true);
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: `${eventTitle} - ${text.titleSuffix}`,
+          url: formShareUrl,
+        });
+        return;
+      }
+      await navigator.clipboard.writeText(formShareUrl);
+      setShareState('copied');
+      setTimeout(() => setShareState('idle'), 2500);
+    } catch (error) {
+      console.warn('Share failed', error);
+      toast.error(formLanguage === 'zh-HANT' ? '無法分享報名表。' : 'Unable to share this form.');
+    }
+  };
+
+  const handleSaveFormQr = () => {
+    const svg = shareQrRef.current?.querySelector('svg');
+    if (!svg) {
+      toast.error(formLanguage === 'zh-HANT' ? 'QR 尚未準備好。' : 'QR code is not ready yet.');
+      return;
+    }
+
+    const serialized = new XMLSerializer().serializeToString(svg);
+    const blob = new Blob([serialized], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `register-${slug}-qr.svg`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="bg-background pb-10 pt-10 md:pt-14">
       <div className="container max-w-3xl">
@@ -599,19 +641,28 @@ export const EventRegisterClient = ({ slug }: { slug: string }) => {
           </div>
 
           <div className="mx-6 mb-2 rounded-xl border border-border bg-white p-4 text-center md:mx-10">
-            <h2 className="text-lg font-bold text-text-primary">{text.shareFormLabel}</h2>
-            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.2em] text-text-secondary">{text.shareFormQrLabel}</p>
-            <div className="mt-3 flex justify-center">
-              <QRCodeSVG value={formShareUrl} size={140} />
-            </div>
-            <a
-              href={formShareUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-3 block break-all text-xs text-primary underline"
+            <button
+              type="button"
+              onClick={() => void handleShareForm()}
+              className="mt-3 w-full rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white"
             >
-              {text.shareFormLinkLabel}
-            </a>
+              {shareState === 'copied' ? text.shareCopied : text.shareFormLabel}
+            </button>
+            {showShareQr && (
+              <>
+                <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-text-secondary">{text.shareFormQrLabel}</p>
+                <div ref={shareQrRef} className="mt-3 flex justify-center">
+                  <QRCodeSVG value={formShareUrl} size={140} />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveFormQr}
+                  className="mt-3 rounded-full border border-border px-4 py-2 text-xs font-semibold text-text-primary hover:border-primary hover:text-primary"
+                >
+                  {text.shareFormSaveQr}
+                </button>
+              </>
+            )}
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 px-6 pb-8 md:px-10">
