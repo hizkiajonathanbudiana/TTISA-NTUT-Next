@@ -43,6 +43,8 @@
     "past": "Past Events",
     "noUpcoming": "No upcoming events scheduled. Please check back later!",
     "noPast": "No past events to show.",
+    "noMoreUpcoming": "No more upcoming events.",
+    "noMorePast": "No more past events.",
     "backToEvents": "Back to all events",
     "viewDetails": "View details",
     "loadingDetail": "Loading event…",

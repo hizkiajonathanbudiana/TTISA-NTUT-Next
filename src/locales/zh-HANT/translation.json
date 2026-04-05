@@ -43,6 +43,8 @@
     "past": "過去的活動",
     "noUpcoming": "目前沒有即將舉行的活動，請稍後再回來查看！",
     "noPast": "沒有過去的活動可顯示。",
+    "noMoreUpcoming": "沒有更多即將舉行的活動。",
+    "noMorePast": "沒有更多過去活動。",
     "backToEvents": "返回所有活動",
     "viewDetails": "查看詳情",
     "loadingDetail": "正在載入活動…",

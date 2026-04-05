@@ -97,7 +97,7 @@ export default function EventsPage() {
             next={fetchNextUpcoming}
             hasMore={Boolean(hasNextUpcoming)}
             loader={<p className="py-8 text-center text-text-secondary">Loading more…</p>}
-            endMessage={<p className="py-8 text-center text-text-secondary">{t('events.noUpcoming')}</p>}
+            endMessage={<p className="py-8 text-center text-text-secondary">{t('events.noMoreUpcoming')}</p>}
             className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3"
           >
             {upcomingEvents.map((event) => (
@@ -121,7 +121,7 @@ export default function EventsPage() {
             next={fetchNextPast}
             hasMore={Boolean(hasNextPast)}
             loader={<p className="py-8 text-center text-text-secondary">Loading more…</p>}
-            endMessage={<p className="py-8 text-center text-text-secondary">No more past events.</p>}
+            endMessage={<p className="py-8 text-center text-text-secondary">{t('events.noMorePast')}</p>}
             className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-3"
           >
             {pastEvents.map((event) => (
